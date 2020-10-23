@@ -1,0 +1,15 @@
+version: '3.7'
+
+services:
+  web:
+    container_name: life 
+    build: .
+    restart: always
+    labels:
+      caddy: life.raphaelpour.de
+      caddy.reverse_proxy: "{{upstreams http 8003}}"
+
+networks:
+  default:
+    external:
+      name: aproxymate_caddy

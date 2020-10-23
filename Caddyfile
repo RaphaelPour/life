@@ -1,0 +1,4 @@
+http://life.raphaelpour.de:8003 {
+  root * /usr/share/caddy
+  file_server browse
+}

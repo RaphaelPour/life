@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+
+<!--
+    @file:      index.html
+    @brief:     Game of life implementation
+    @author:    Raphael Pour <info@raphaelpour.de>
+    @license:   (C) 2018 Raphael Pour GPL
+-->
+
+<head>
+    <!-- Required meta tags -->
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <!--<link rel="shortcut icon" type="image/png" href="logo.png">-->
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.0/css/bootstrap.min.css" integrity="sha384-9gVQ4dYFwwWSjIDZnLEWnxCjeSWFphJiwGPXr1jddIhOegiu1FwO5qRGvFXOdJZ4"
+        crossorigin="anonymous">
+
+    <!--<link rel="stylesheet" href="style.css">-->
+    <!-- Optional JavaScript -->
+    <!-- jQuery first, then Popper.js, then Bootstrap JS -->
+    <script src="https://unpkg.com/jquery@3.3.1/dist/jquery.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.1.0/js/bootstrap.min.js" integrity="sha384-uefMccjFJAIv6A+rW+L4AHf99KvxDjWSu1z9VI8SKNVmz4sk7buKt/6v9KI65qnm"
+        crossorigin="anonymous"></script>
+    <!-- development version, includes helpful console warnings -->
+    <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+
+    <title>Game of life</title>
+</head>
+
+<body>
+
+    <div class='jumbotron' style='padding:10px'>
+        <div class="container" style="text-align:center">
+            <h1>
+                <a href='index.html'><img src='logo.png' width="64" style='margin-right:40px'></a>Life</h1>
+            <p><em>~Living and dying, in every neighborhood~</em></p>
+        </div>
+    </div>
+
+    <div id='gameoflife' style="padding:0px;margin:0px;text-align:center;display:block">
+
+        <canvas id='screen' style="border: 2px solid black;text-align:center;" v-on:mouseDown="onClick" v-on:mouseMove="onMouseMove"
+            v-on:mouseUp="onMouseUp" v-on:mouseOut="onMouseUp" @contextmenu.prevent></canvas>
+
+        <div class="form-group">
+            <button class="btn btn-primary" v-on:click="nextGen();render();">Next Generation</button>
+            <button v-if="!autoGeneration" class="btn btn-success" v-on:click="autoGeneration=true; generationLoop()">Start
+                Auto Generation</button>
+            <button v-else class="btn btn-danger" v-on:click="autoGeneration=false">Stop Auto Generation</button>
+            <button class="btn btn-danger" v-on:click="autoGeneration=false;initCells()">Clear</button>
+            Generation speed: <input class="form-control-sm" type="range" v-model="generationSpeed" min="10" max="1000" step="10">
+        </div>
+        <div class="form-group">
+            ~{{1000/generationSpeed | round1f}} Generations/s
+            <em style="color:gray">Count of Generations: {{ generationCount }}</em>
+        </div>
+
+        <div class="form-group">
+            <div class="form-header">
+                Properties
+            </div>
+            Show Grid <input type="checkbox" id="showGrid" v-model="showGrid" @change="render">
+        </div>
+
+        <div class="form-group">
+            Neighbour-Behaviour<br>
+            Lower Limit <input class="form-control-sm" type="range" min="0" v-bind:max="neighbourUpperLimit" step="1" v-model="neighbourLowerLimit">
+            {{neighbourLowerLimit}}<br>
+            Upper Limit <input class="form-control-sm" type="range" v-bind:min="neighbourLowerLimit" max="8" step="1" v-model="neighbourUpperLimit">
+            {{neighbourUpperLimit}}<br>
+            Birth Limit <input class="form-control-sm" type="range" v-bind:min="neighbourLowerLimit"  v-bind:max="neighbourUpperLimit" step="1" v-model="birthLimit">
+            {{ birthLimit }}
+        </div>
+    </div>
+
+    <div class='footer'>
+        &copy; 2018 <a href='https://raphaelpour.de'>Raphael Pour</a> | <a href='https://bitbucket.org/evilc00kie/gameoflife'>Source
+            Code</a> licensed under
+        <a href='http://www.gnu.de/documents/gpl.de.html'>GPL</a> | <a href='https://raphaelpour.de/impressum/'>Impressum|
+            Icons by <a href="http://icons8.com/">Icons8</a></a>
+    </div>
+    <script>
+        var app = new Vue({
+            el: '#gameoflife',
+            data: {
+                ctx: null,
+                gridSize: 10,
+                showGrid,
+                width: 100,
+                height: 100,
+                neighbourLowerLimit: 3,
+                neighbourUpperLimit: 4,
+                cells: null,
+                autoGeneration: false,
+                last: [-1, -1],
+                generationCount: 0,
+                drawMode: false,
+                hoverCoords: [-1, -1],
+                pressedMouseButton: false,
+                generationSpeed: 500,
+                birthLimit : 3
+            },
+            created: function () {
+                window.addEventListener('resize', this.resize, false);
+            },
+            methods: {
+                init: function (context) {
+
+                    this.ctx = context;
+                    this.width = this.ctx.canvas.width;
+                    this.height = this.ctx.canvas.height;
+                    this.initCells();
+                },
+
+                resize: function () {
+                    this.width = window.innerWidth * 0.9;
+                    this.height = window.innerHeight * 0.5;
+                    this.ctx.canvas.width = this.width;
+                    this.ctx.canvas.height = this.height;
+
+
+                    var gw = Math.floor(this.width / this.gridSize);
+                    var gh = Math.floor(this.height / this.gridSize);
+
+                    let cells = new Array(gh);
+                    for (let h = 0; h < gh; h++) {
+                        cells[h] = new Array(gw);
+                        for (let w = 0; w < gw; w++) {
+                            cells[h][w] = false;
+                        }
+                    }
+
+
+                    if (this.cells != null)
+                        for (let y = 0; y < cells.length && y < this.cells.length; y++)
+                            for (let x = 0; x < cells[0].length && x < this.cells[0].length; x++)
+                                cells[y][x] = this.cells[y][x]
+
+                    delete this.cells
+
+                    this.cells = cells
+
+                    this.render();
+                    this.generationCount = 0;
+
+                },
+
+                onMouseMove: function (e) {
+
+                    var r = this.ctx.canvas.getBoundingClientRect();
+
+                    // Transform mouse-coordinates (=world-coordinates) to canvas coordinates
+                    var x = e.clientX - r.left;
+                    var y = e.clientY - r.top;
+
+
+
+                    // Transform canvas-coordinates grid coordinates
+                    var gx = x - x % this.gridSize;
+                    var gy = y - y % this.gridSize;
+
+                    // Transform canvas-coordinates to cell coordinates
+                    var cx = Math.floor(x / this.gridSize);
+                    var cy = Math.floor(y / this.gridSize);
+
+
+
+                    this.hoverCoords = [cx, cy];
+                    if (!this.drawMode) {
+                        // If we are only here to hover
+                        this.render();
+                        return;
+                    }
+
+
+                    if (cx == this.last[0] && cy == this.last[1])
+                        return;
+
+
+                    this.cells[cy][cx] = this.pressedMouseButton;
+                    //!this.cells[cy][cx];
+
+                    this.last[0] = cx;
+                    this.last[1] = cy;
+
+                    this.render();
+
+                    e.preventDefault();
+                },
+
+                onMouseUp: function (e) {
+                    this.pressedMouseButton = false;
+                    this.drawMode = false;
+                },
+                onClick: function (e) {
+                    if (e.which == 1 || e.which == 3) {
+                        this.pressedMouseButton = e.which == 1
+                        this.drawMode = true;
+                        this.onMouseMove(e);
+                    }
+                },
+                clear: function () {
+                    this.ctx.save();
+                    this.ctx.fillStyle = "#FFF";
+                    this.ctx.fillRect(0, 0, this.ctx.canvas.width, this.ctx.canvas.height);
+                    this.ctx.restore();
+                },
+                initCells() {
+
+                    var gw = Math.floor(this.width / this.gridSize);
+                    var gh = Math.floor(this.height / this.gridSize);
+
+                    this.cells = new Array(gh);
+                    for (let h = 0; h < gh; h++) {
+                        this.cells[h] = new Array(gw);
+                        for (let w = 0; w < gw; w++) {
+                            this.cells[h][w] = false;
+                        }
+                    }
+
+                    this.render();
+                    this.generationCount = 0;
+                },
+
+                render: function () {
+                    this.clear();
+                    this.drawCells();
+                    this.drawGrid();
+                    this.highlightMousePosition();
+                },
+
+                highlightMousePosition: function () {
+                    this.ctx.save();
+                    this.ctx.fillStyle = "red";
+                    this.ctx.fillRect(this.hoverCoords[0] * this.gridSize, this.hoverCoords[1] * this.gridSize, this.gridSize, this.gridSize);
+                    this.ctx.restore();
+                },
+                generationLoop: function () {
+                    if (!this.autoGeneration) return;
+                    setTimeout(this.generationLoop, this.generationSpeed);
+                    this.nextGen();
+                    this.render();
+                },
+                drawCells: function () {
+
+                    for (let h = 0; h < this.cells.length; h++)
+                        for (let w = 0; w < this.cells[h].length; w++)
+                            if (this.cells[h][w]) {
+                                this.ctx.fillRect(w * this.gridSize, h * this.gridSize, this.gridSize, this.gridSize);
+                            }
+                },
+                drawGrid: function () {
+
+                    if (!this.showGrid) return;
+
+                    this.ctx.save();
+                    this.ctx.strokeStyle = "#999";
+                    for (let x = 0; x < this.ctx.canvas.width; x += this.gridSize) {
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(x, 0);
+                        this.ctx.lineTo(x, this.ctx.canvas.height);
+                        this.ctx.stroke();
+                        this.ctx.closePath();
+                    }
+
+                    for (let y = 0; y < this.ctx.canvas.height; y += this.gridSize) {
+                        this.ctx.beginPath();
+                        this.ctx.moveTo(0, y);
+                        this.ctx.lineTo(this.ctx.canvas.width, y);
+                        this.ctx.stroke();
+                        this.ctx.closePath();
+                    }
+
+                    this.ctx.restore();
+
+                },
+
+                countNeighbours: function (x, y, c) {
+                    //console.log(c);
+                    if (x < 0 || x > c[0].length ||
+                        y < 0 || y >= c.length)
+                        return 0;
+
+                    neighbourCount = 0;
+
+                    // Left neighbour?
+                    if (x > 0 && c[y][x - 1])
+                        neighbourCount++;
+
+                    // Right neighbour?
+                    if (x < c[y].length - 1 && c[y][x + 1])
+                        neighbourCount++;
+
+                    // Top neighbour?
+                    if (y > 0 && c[y - 1][x])
+                        neighbourCount++;
+
+                    // Bottom neighbour?
+                    if (y < c.length - 1 && c[y + 1][x])
+                        neighbourCount++;
+
+                    if (x > 0) {
+                        if (y > 0 && c[y - 1][x - 1])
+                            neighbourCount++;
+
+                        if (y < c.length - 1 && c[y + 1][x - 1])
+                            neighbourCount++;
+                    }
+
+                    if (x < c[0].length - 1) {
+                        if (y > 0 && c[y - 1][x + 1])
+                            neighbourCount++;
+
+                        if (y < c.length - 1 && c[y + 1][x + 1])
+                            neighbourCount++;
+
+                    }
+
+                    return neighbourCount;
+                },
+
+                nextGen: function () {
+                    this.generationCount++;
+
+                    var newCells = this.cells.map(function (arr) {
+                        return arr.slice();
+                    });
+
+                    // Apply game-of-life rules and store result in newCells array
+                    for (let y = 0; y < this.cells.length; y++) {
+                        for (let x = 0; x < this.cells[y].length; x++) {
+                            var c = this.countNeighbours(x, y, newCells);
+                            if(this.cells[y][x])
+                                this.cells[y][x] = (c >= this.neighbourLowerLimit && c <= this.neighbourUpperLimit);
+                            else if(c == this.birthLimit)
+                                this.cells[y][x] = true;
+                        }
+
+                    }
+                }
+
+            },
+            filters : {
+                round1f : function (v)
+                {
+                    return Math.round(v*10)/10;
+                }
+            }
+        });
+
+        var canvas = document.getElementById("screen");
+
+        if (canvas && canvas.getContext) {
+            app.init(app.ctx = canvas.getContext('2d'));
+            app.resize();
+        }
+        else {
+            console.log("Canvas error.");
+        }
+
+
+
+    </script>
+
+</body>
+
+</html>
